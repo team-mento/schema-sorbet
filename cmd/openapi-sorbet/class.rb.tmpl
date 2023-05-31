@@ -1,0 +1,45 @@
+# typed: strict
+# frozen_string_literal: true
+
+=begin
+Generated from OpenAPI specification for
+  {{ .Metadata.Spec.Title }} {{ .Metadata.Spec.Version }}
+using
+  {{ .Metadata.Command }} version {{ .Metadata.Version }}.
+DO NOT EDIT.
+=end
+{{ range .Metadata.Modules }} module {{ . }}
+{{ end -}}
+{{ with .Type -}}
+=begin
+{{ .TypeName }} {{ .Comment }}
+=end
+{{- if and .IsObject (ne .AdditionalProperties "") }}
+{{ .TypeName }} = T.type_alias { T::Hash[String, {{ .AdditionalProperties }}] }
+{{- else if .IsObject }}
+class {{ .TypeName }} {{ if .BaseClass }} < {{ .BaseClass }} {{ end }}
+extend T::Sig
+{{ range .Properties }}
+{{ .RubyDefinition }}
+{{- end -}}
+{{ if and (eq (len .Properties) 0) (eq .AdditionalProperties "") }}
+# NOTE that the properties could not be understood - it's worth raising this upstream
+{{ end }}
+end
+{{- else if .IsEnum }}
+class {{ .TypeName }} < T::Enum
+  extend T::Sig
+
+  enums do
+    {{- range .Enum }}
+      {{ .Name }} = new('{{ .Value }}')
+    {{- end }}
+  end
+end
+{{- else }}
+{{ .TypeName }} = T.type_alias { {{ if .IsArray }}T::Array[{{ end }}{{ if .Alias }}{{ .Alias }}{{ else }}String{{ end }}{{ if .IsArray }}]{{ end }}}
+{{- end }}
+{{- end }}
+{{- range .Metadata.Modules }}
+end
+{{- end }}
