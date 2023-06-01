@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -317,7 +316,7 @@ func main() {
 	flag.StringVar(&out, "out", "out", "")
 	flag.Parse()
 
-	docBytes, err := ioutil.ReadFile(path)
+	docBytes, err := os.ReadFile(path)
 	must(err)
 
 	document, err := libopenapi.NewDocument(docBytes)
