@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,9 +14,14 @@ import (
 	_ "embed"
 
 	"github.com/carlmjohnson/versioninfo"
-	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/iancoleman/strcase"
+	"github.com/pb33f/libopenapi"
+	"github.com/pb33f/libopenapi/datamodel/high/base"
 	"golang.org/x/exp/slices"
+)
+
+const (
+	SorbetUntyped = "T.untyped"
 )
 
 type Metadata struct {
@@ -59,8 +65,7 @@ type Property struct {
 	Type       string
 	SchemaName string
 	Required   bool
-	// // JSONName is the :name property
-	// JSONName string
+	IsArray    bool
 }
 
 type Enum struct {
@@ -73,10 +78,15 @@ type Enum struct {
 func (p *Property) RubyDefinition() string {
 	s := fmt.Sprintf("const :%s, ", p.Name)
 
+	ty := p.Type
+	if p.IsArray {
+		ty = fmt.Sprintf("T::Array[%s]", ty)
+	}
+
 	if p.Required {
-		s += p.Type
+		s += ty
 	} else {
-		s += fmt.Sprintf("T.nilable(%s)", p.Type)
+		s += fmt.Sprintf("T.nilable(%s)", ty)
 	}
 
 	if p.SchemaName != p.Name {
@@ -90,19 +100,19 @@ func prepareComment(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func parseString(name string, v *openapi3.SchemaRef) (types []Type) {
+func parseStringV2(name string, v *base.Schema) (types []Type) {
 	t := Type{}
 	t.SchemaName = name
 	t.TypeName = strcase.ToCamel(name)
 	t.Filename = strcase.ToSnake(name)
-	t.Comment = prepareComment(v.Value.Description)
+	t.Comment = prepareComment(v.Description)
 	t.Alias = "String"
 
-	if v.Value.Enum != nil {
-		if "string" != reflect.TypeOf(v.Value.Enum[0]).String() {
-			log.Println("WARN: " + name + " has a non-string enum type (`  " + reflect.TypeOf(v.Value.Enum[0]).String() + " `), which may not work with enum generation")
+	if v.Enum != nil {
+		if "string" != reflect.TypeOf(v.Enum[0]).String() {
+			log.Println("WARN: " + name + " has a non-string enum type (`  " + reflect.TypeOf(v.Enum[0]).String() + " `), which may not work with enum generation")
 		}
-		for _, enum := range v.Value.Enum {
+		for _, enum := range v.Enum {
 			val, ok := enum.(string)
 			if !ok {
 				log.Println("WARN: " + name + " has a non-string enum type (`  " + reflect.TypeOf(val).String() + " `), which failed to have its type converted to a string")
@@ -123,33 +133,68 @@ func parseString(name string, v *openapi3.SchemaRef) (types []Type) {
 	return types
 }
 
-func parseObject(name string, v *openapi3.SchemaRef) (types []Type) {
+func parseObjectV2(name string, v *base.Schema) (types []Type) {
 	t := Type{}
 	t.SchemaName = name
 	t.TypeName = strcase.ToCamel(name)
 	t.Filename = strcase.ToSnake(name)
-	t.Comment = prepareComment(v.Value.Description)
+	t.Comment = prepareComment(v.Description)
 	t.BaseClass = "T::Struct"
 
-	for propertyName, v2 := range v.Value.Properties {
+	for propertyName, v2 := range v.Properties {
 		prop := Property{
 			Name:       strcase.ToSnake(propertyName),
 			SchemaName: propertyName,
-			Type:       "T.untyped",
-			Required:   slices.Contains(v.Value.Required, propertyName),
+			Type:       SorbetUntyped,
+			Required:   slices.Contains(v.Required, propertyName),
 		}
 
-		if v2.Ref != "" {
-			parts := strings.Split(v2.Ref, "/")
+		if v2.IsReference() {
+			parts := strings.Split(v2.GetReference(), "/")
 			prop.Type = parts[len(parts)-1]
 		} else {
-			switch v2.Value.Type {
+			schema := v2.Schema()
+			if len(schema.Type) == 0 {
+				log.Printf("Skipping property %s.%s as no Type was present", name, propertyName)
+				continue
+			}
+
+			switch schema.Type[0] { //TODO
 			case "string":
 				prop.Type = "String"
 			case "integer":
 				prop.Type = "Integer"
+			case "array":
+				prop.IsArray = true
+				prop.Type = SorbetUntyped
+
+				if schema.Items.IsB() {
+					// do nothing
+				} else if schema.Items.IsA() {
+					s := schema.Items.A
+					if s.IsReference() {
+						parts := strings.Split(s.GetReference(), "/")
+						prop.Type = parts[len(parts)-1]
+					} else {
+						schema := s.Schema()
+						if len(schema.Type) > 0 {
+							switch schema.Type[0] { //TODO
+							case "string":
+								prop.Type = "String"
+							case "integer":
+								prop.Type = "Integer"
+							default:
+								log.Printf("%s had an unmatched v.Items.Schema.Type in parseObject: %#v\n", name, schema.Type[0])
+							}
+						} else {
+							log.Printf("%s had an unset v.Items.Schema.Type in parseObject: %#v\n", name, schema.Type)
+						}
+					}
+				} else {
+					log.Printf("%s.%s had an unmatched v.Type in parseObject: %#v\n", name, propertyName, schema.Type[0])
+				}
 			default:
-				log.Printf("%s.%s had an unmatched v.Value.Type in parseObject: %#v\n", name, propertyName, v2.Value.Type)
+				log.Printf("%s.%s had an unmatched v.Type in parseObject: %#v\n", name, propertyName, schema.Type[0])
 			}
 		}
 
@@ -161,13 +206,26 @@ func parseObject(name string, v *openapi3.SchemaRef) (types []Type) {
 		return a.Name < b.Name
 	})
 
-	if v.Value.AdditionalProperties.Schema != nil {
-		if v.Value.AdditionalProperties.Schema.Value.Type == "string" {
-			t.AdditionalProperties = "String"
-		} else {
-			fmt.Printf("TODO: v.Value.AdditionalProperties.Schema.Value.Type: %v\n", v.Value.AdditionalProperties.Schema.Value.Type)
-		}
+	if v.AdditionalProperties == true {
+		t.AdditionalProperties = SorbetUntyped
+	} else if v.AdditionalProperties != nil {
+		sp, ok := v.AdditionalProperties.(*base.SchemaProxy)
+		if ok {
+			schema := sp.Schema()
 
+			if len(schema.Type) > 0 {
+				switch schema.Type[0] { //TODO
+				case "string":
+					t.AdditionalProperties = "String"
+				case "integer":
+					t.AdditionalProperties = "Integer"
+				default:
+					log.Printf("%s had an unmatched v.AdditionalProperties in parseObject: %#v\n", name, schema.Type[0])
+				}
+			} else {
+				log.Printf("%s had an unmatched v.AdditionalProperties in parseObject: %#v\n", name, schema.Type)
+			}
+		}
 	}
 
 	types = append(types, t)
@@ -175,29 +233,56 @@ func parseObject(name string, v *openapi3.SchemaRef) (types []Type) {
 	return types
 }
 
-func parseSchema(name string, v *openapi3.SchemaRef) (types []Type) {
-	if v.Ref != "" {
-		fmt.Printf("Schema %s was a reference\n", name)
-		return
+func parseArray(name string, v *base.Schema) (types []Type) {
+	t := Type{}
+	t.SchemaName = name
+	t.TypeName = strcase.ToCamel(name)
+	t.Filename = strcase.ToSnake(name)
+	t.Comment = prepareComment(v.Description)
+	t.Alias = SorbetUntyped
+	t.IsArray = true
+
+	// IsB here is whether this is an `items: true`
+	if v.Items.IsB() {
+		t.Alias = ""
+		t.AdditionalProperties = SorbetUntyped
+	} else if v.Items.IsA() {
+		s := v.Items.A
+		if s.IsReference() {
+			parts := strings.Split(s.GetReference(), "/")
+			t.Alias = parts[len(parts)-1]
+		} else {
+			schema := s.Schema()
+			if len(schema.Type) > 0 {
+				switch schema.Type[0] { //TODO
+				case "string":
+					t.Alias = "String"
+				case "integer":
+					t.Alias = "Integer"
+				default:
+					log.Printf("%s had an unmatched v.Items.Schema.Type in parseArray: %#v\n", name, schema.Type[0])
+				}
+			} else {
+				log.Printf("%s had an unset v.Items.Schema.Type in parseArray: %#v\n", name, schema.Type)
+			}
+		}
 	}
 
-	switch v.Value.Type {
-	case "string":
-		types = append(types, parseString(name, v)...)
-	case "object":
-		types = append(types, parseObject(name, v)...)
-	case "array":
-		t := Type{}
-		t.SchemaName = name
-		t.TypeName = strcase.ToCamel(name)
-		t.Filename = strcase.ToSnake(name)
-		t.Comment = prepareComment(v.Value.Description)
-		t.Alias = "T.untyped" // TODO this should be the type name, bu tit's unclear how to get it
-		t.IsArray = true
+	types = append(types, t)
 
-		types = append(types, t)
+	return
+}
+
+func parseSchemaV2(name string, v *base.Schema) (types []Type) {
+	switch v.Type[0] { // TODO
+	case "string":
+		types = append(types, parseStringV2(name, v)...)
+	case "object":
+		types = append(types, parseObjectV2(name, v)...)
+	case "array":
+		types = append(types, parseArray(name, v)...)
 	default:
-		log.Printf("%s had an unmatched v.Value.Type in parseSchema: %#v\n", name, v.Value.Type)
+		log.Printf("%s had an unmatched v.Value.Type in parseSchema: %#v\n", name, v.Type)
 	}
 
 	return
@@ -232,16 +317,32 @@ func main() {
 	flag.StringVar(&out, "out", "out", "")
 	flag.Parse()
 
-	doc, err := openapi3.NewLoader().LoadFromFile(path)
+	docBytes, err := ioutil.ReadFile(path)
 	must(err)
+
+	document, err := libopenapi.NewDocument(docBytes)
+	d, errors := document.BuildV3Model()
+	if len(errors) > 0 {
+		log.Printf("Failed to build OpenAPI v3 model for %s\n", path)
+		for _, err2 := range errors {
+			log.Println(err2)
+		}
+		log.Fatal("^^")
+	}
 
 	classTemplate, err := template.New("").Funcs(template.FuncMap{}).Parse(rawClassTemplate)
 	must(err)
 
 	var allTypes []Type
 
-	for k, v := range doc.Components.Schemas {
-		types := parseSchema(k, v)
+	for k, sp := range d.Model.Components.Schemas {
+		if sp.IsReference() {
+			log.Printf("Skipping %s as ref", k)
+			continue
+		}
+
+		schema := sp.Schema()
+		types := parseSchemaV2(k, schema)
 		if len(types) == 0 {
 			log.Printf("Missing type data for schema %s\n", k)
 		}
@@ -269,8 +370,8 @@ func main() {
 
 		Modules: modules,
 	}
-	metadata.Spec.Title = doc.Info.Title
-	metadata.Spec.Version = doc.Info.Version
+	metadata.Spec.Title = d.Model.Info.Title
+	metadata.Spec.Version = d.Model.Info.Version
 
 	for _, t := range allTypes {
 		data := struct {
