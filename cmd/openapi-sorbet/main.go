@@ -321,6 +321,8 @@ func main() {
 	must(err)
 
 	document, err := libopenapi.NewDocument(docBytes)
+	must(err)
+
 	d, errors := document.BuildV3Model()
 	if len(errors) > 0 {
 		log.Printf("Failed to build OpenAPI v3 model for %s\n", path)
