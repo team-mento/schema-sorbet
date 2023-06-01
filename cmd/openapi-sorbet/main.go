@@ -65,6 +65,7 @@ type Property struct {
 	Type       string
 	SchemaName string
 	Required   bool
+	IsArray    bool
 }
 
 type Enum struct {
@@ -77,10 +78,15 @@ type Enum struct {
 func (p *Property) RubyDefinition() string {
 	s := fmt.Sprintf("const :%s, ", p.Name)
 
+	ty := p.Type
+	if p.IsArray {
+		ty = fmt.Sprintf("T::Array[%s]", ty)
+	}
+
 	if p.Required {
-		s += p.Type
+		s += ty
 	} else {
-		s += fmt.Sprintf("T.nilable(%s)", p.Type)
+		s += fmt.Sprintf("T.nilable(%s)", ty)
 	}
 
 	if p.SchemaName != p.Name {
@@ -158,6 +164,35 @@ func parseObjectV2(name string, v *base.Schema) (types []Type) {
 				prop.Type = "String"
 			case "integer":
 				prop.Type = "Integer"
+			case "array":
+				prop.IsArray = true
+				prop.Type = SorbetUntyped
+
+				if schema.Items.IsB() {
+					// do nothing
+				} else if schema.Items.IsA() {
+					s := schema.Items.A
+					if s.IsReference() {
+						parts := strings.Split(s.GetReference(), "/")
+						prop.Type = parts[len(parts)-1]
+					} else {
+						schema := s.Schema()
+						if len(schema.Type) > 0 {
+							switch schema.Type[0] { //TODO
+							case "string":
+								prop.Type = "String"
+							case "integer":
+								prop.Type = "Integer"
+							default:
+								log.Printf("%s had an unmatched v.Items.Schema.Type in parseObject: %#v\n", name, schema.Type[0])
+							}
+						} else {
+							log.Printf("%s had an unset v.Items.Schema.Type in parseObject: %#v\n", name, schema.Type)
+						}
+					}
+				} else {
+					log.Printf("%s.%s had an unmatched v.Type in parseObject: %#v\n", name, propertyName, schema.Type[0])
+				}
 			default:
 				log.Printf("%s.%s had an unmatched v.Type in parseObject: %#v\n", name, propertyName, schema.Type[0])
 			}
