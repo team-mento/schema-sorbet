@@ -65,8 +65,6 @@ type Property struct {
 	Type       string
 	SchemaName string
 	Required   bool
-	// // JSONName is the :name property
-	// JSONName string
 }
 
 type Enum struct {
