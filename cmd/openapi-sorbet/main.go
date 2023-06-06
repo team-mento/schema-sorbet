@@ -163,6 +163,13 @@ func parseObject(name string, v *base.Schema) (types []Type) {
 				prop.Type = "String"
 			case "integer":
 				prop.Type = "Integer"
+			case "object":
+				objectTypeName := name + strcase.ToCamel(propertyName)
+
+				childTypes := parseObject(objectTypeName, schema)
+				types = append(types, childTypes...)
+
+				prop.Type = objectTypeName
 			case "array":
 				prop.IsArray = true
 				prop.Type = SorbetUntyped
