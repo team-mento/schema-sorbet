@@ -132,6 +132,18 @@ func parseString(name string, v *base.Schema) (types []Type) {
 	return types
 }
 
+func parseBoolean(name string, v *base.Schema) (types []Type) {
+	t := Type{}
+	t.SchemaName = name
+	t.TypeName = strcase.ToCamel(name)
+	t.Filename = strcase.ToSnake(name)
+	t.Comment = prepareComment(v.Description)
+	t.Alias = "T::Boolean"
+
+	types = append(types, t)
+	return
+}
+
 func parseObject(name string, v *base.Schema) (types []Type) {
 	t := Type{}
 	t.SchemaName = name
@@ -161,6 +173,8 @@ func parseObject(name string, v *base.Schema) (types []Type) {
 			switch schema.Type[0] { //TODO
 			case "string":
 				prop.Type = "String"
+			case "boolean":
+				prop.Type = "T::Boolean"
 			case "integer":
 				prop.Type = "Integer"
 			case "object":
@@ -283,6 +297,8 @@ func parseSchema(name string, v *base.Schema) (types []Type) {
 	switch v.Type[0] { // TODO
 	case "string":
 		types = append(types, parseString(name, v)...)
+	case "boolean":
+		types = append(types, parseBoolean(name, v)...)
 	case "object":
 		types = append(types, parseObject(name, v)...)
 	case "array":
