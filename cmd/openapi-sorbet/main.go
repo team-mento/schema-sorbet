@@ -99,7 +99,7 @@ func prepareComment(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func parseStringV2(name string, v *base.Schema) (types []Type) {
+func parseString(name string, v *base.Schema) (types []Type) {
 	t := Type{}
 	t.SchemaName = name
 	t.TypeName = strcase.ToCamel(name)
@@ -132,7 +132,7 @@ func parseStringV2(name string, v *base.Schema) (types []Type) {
 	return types
 }
 
-func parseObjectV2(name string, v *base.Schema) (types []Type) {
+func parseObject(name string, v *base.Schema) (types []Type) {
 	t := Type{}
 	t.SchemaName = name
 	t.TypeName = strcase.ToCamel(name)
@@ -272,12 +272,12 @@ func parseArray(name string, v *base.Schema) (types []Type) {
 	return
 }
 
-func parseSchemaV2(name string, v *base.Schema) (types []Type) {
+func parseSchema(name string, v *base.Schema) (types []Type) {
 	switch v.Type[0] { // TODO
 	case "string":
-		types = append(types, parseStringV2(name, v)...)
+		types = append(types, parseString(name, v)...)
 	case "object":
-		types = append(types, parseObjectV2(name, v)...)
+		types = append(types, parseObject(name, v)...)
 	case "array":
 		types = append(types, parseArray(name, v)...)
 	default:
@@ -343,7 +343,7 @@ func main() {
 		}
 
 		schema := sp.Schema()
-		types := parseSchemaV2(k, schema)
+		types := parseSchema(k, schema)
 		if len(types) == 0 {
 			log.Printf("Missing type data for schema %s\n", k)
 		}
