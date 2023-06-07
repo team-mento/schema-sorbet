@@ -21,10 +21,7 @@ class {{ .TypeName }} {{ if .BaseClass }} < {{ .BaseClass }} {{ end }}
 extend T::Sig
 {{ range .Properties }}
 {{ .RubyDefinition }}
-{{- end -}}
-{{ if and (eq (len .Properties) 0) (eq .AdditionalProperties "") }}
-# NOTE that the properties could not be understood - it's worth raising this upstream
-{{ end }}
+{{- end }}
 end
 {{- else if .IsEnum }}
 class {{ .TypeName }} < T::Enum
