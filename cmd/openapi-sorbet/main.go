@@ -162,7 +162,7 @@ func parseObject(name string, v *base.Schema) (types []Type) {
 
 		if v2.IsReference() {
 			parts := strings.Split(v2.GetReference(), "/")
-			prop.Type = parts[len(parts)-1]
+			prop.Type = strcase.ToCamel(parts[len(parts)-1])
 		} else {
 			schema := v2.Schema()
 			if len(schema.Type) == 0 {
@@ -178,12 +178,12 @@ func parseObject(name string, v *base.Schema) (types []Type) {
 			case "integer":
 				prop.Type = "Integer"
 			case "object":
-				objectTypeName := name + strcase.ToCamel(propertyName)
+				objectTypeName := name + "_" + propertyName
 
 				childTypes := parseObject(objectTypeName, schema)
 				types = append(types, childTypes...)
 
-				prop.Type = objectTypeName
+				prop.Type = strcase.ToCamel(objectTypeName)
 			case "array":
 				prop.IsArray = true
 				prop.Type = SorbetUntyped
@@ -194,7 +194,7 @@ func parseObject(name string, v *base.Schema) (types []Type) {
 					s := schema.Items.A
 					if s.IsReference() {
 						parts := strings.Split(s.GetReference(), "/")
-						prop.Type = parts[len(parts)-1]
+						prop.Type = strcase.ToCamel(parts[len(parts)-1])
 					} else {
 						schema := s.Schema()
 						if len(schema.Type) > 0 {
@@ -294,6 +294,11 @@ func parseArray(name string, v *base.Schema) (types []Type) {
 }
 
 func parseSchema(name string, v *base.Schema) (types []Type) {
+	if len(v.Type) == 0 {
+		log.Printf("Skipping %s as no Type was present", name)
+		return
+	}
+
 	switch v.Type[0] { // TODO
 	case "string":
 		types = append(types, parseString(name, v)...)
