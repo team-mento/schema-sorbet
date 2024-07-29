@@ -14,6 +14,9 @@ DO NOT EDIT.
 =begin
 {{ .TypeName }} {{ .Comment }}
 =end
+{{- range .RelativeRequires }}
+require_relative '{{ . }}'
+{{- end }}  
 {{- if and .IsObject (ne .AdditionalProperties "") }}
 {{ .TypeName }} = T.type_alias { T::Hash[String, {{ .AdditionalProperties }}] }
 {{- else if .IsObject }}

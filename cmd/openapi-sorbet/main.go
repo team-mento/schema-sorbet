@@ -50,6 +50,31 @@ type Type struct {
 	IsArray bool
 }
 
+func (t Type) RelativeRequires() []string {
+	required := make(map[string]bool)
+
+	for _, prop := range t.Properties {
+		if prop.Type != SorbetUntyped && prop.Type != "String" && prop.Type != "Integer" && prop.Type != "T::Boolean" {
+			filename := strcase.ToSnake(prop.Type)
+			required[filename] = true
+		}
+	}
+
+	if t.AdditionalProperties != "" && t.AdditionalProperties != SorbetUntyped &&
+		t.AdditionalProperties != "String" && t.AdditionalProperties != "Integer" {
+		filename := strcase.ToSnake(t.AdditionalProperties)
+		required[filename] = true
+	}
+
+	result := make([]string, 0, len(required))
+	for filename := range required {
+		result = append(result, "./"+filename)
+	}
+
+	slices.Sort(result)
+	return result
+}
+
 func (t Type) IsObject() bool {
 	return "T::Struct" == t.BaseClass
 }
