@@ -445,6 +445,24 @@ func main() {
 		err = f.Close()
 		must(err)
 	}
+
+	// Create types.rb file
+	typesFile, err := os.Create(filepath.Join(outPath, "types.rb"))
+	must(err)
+	defer typesFile.Close()
+
+	// Write requires for all generated type files
+	sortedTypes := make([]Type, len(allTypes))
+	copy(sortedTypes, allTypes)
+	slices.SortFunc(sortedTypes, func(a, b Type) bool {
+		return a.Filename < b.Filename
+	})
+	for _, t := range sortedTypes {
+		_, err := fmt.Fprintf(typesFile, "require_relative '%s'\n", t.Filename)
+		must(err)
+	}
+
+	fmt.Println("Generated types.rb with all type requires")
 }
 
 func must(err error) {
