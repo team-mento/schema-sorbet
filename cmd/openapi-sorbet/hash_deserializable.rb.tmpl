@@ -1,0 +1,93 @@
+# typed: strict
+# frozen_string_literal: true
+
+require 'sorbet-runtime'
+
+{{ range .Metadata.Modules }} module {{ . }}
+{{ end -}}
+    module HashDeserializable
+      extend T::Sig
+
+      module ClassMethods
+        extend T::Sig
+
+        sig { params(hash: T::Hash[Symbol, T.untyped]).returns(T.self_type) }
+        def from_hash(hash)
+          props = self.props
+          args = {}
+
+          props.each do |name, type_info|
+            value = hash[name]
+            next if value.nil? && type_info[:fully_optional]
+
+            args[name] = parse_value(value, type_info[:type_object])
+          end
+
+          new(**args)
+        end
+
+        private
+
+        sig { params(value: T.untyped, type: T::Types::Base).returns(T.untyped) }
+        def parse_value(value, type)
+          case type
+          when T::untyped
+            value
+          when T::Types::Simple
+            if type.raw_type.respond_to?(:from_hash) && type.raw_type.method(:from_hash).arity == 1
+              v = type.raw_type.from_hash(value)
+              T.assert_type!(v, type.raw_type)
+            else
+              T.assert_type!(value, type.raw_type)
+            end
+          when T::Types::TypedArray
+            parse_array(value, type.type)
+          when T::Types::TypedHash
+            parse_hash(value, type.keys, type.values)
+          when T::Types::Union
+            parse_union(value, type)
+          else
+            if type.name && Object.const_defined?(type.name)
+              klass = Object.const_get(type.name)
+              klass.respond_to?(:from_hash) ? klass.from_hash(value) : value
+            else
+              value
+            end
+          end
+        end
+
+        sig { params(value: T.untyped, type: T::Types::Base).returns(T.nilable(T::Array[T.untyped])) }
+        def parse_array(value, type)
+          return nil if value.nil?
+          T.assert_type!(value, Array)
+          value.map { |item| parse_value(item, type) }
+        end
+
+        sig { params(value: T.untyped, type: T::Types::Union).returns(T.untyped) }
+        def parse_union(value, type)
+          type.types.each do |subtype|
+            begin
+              return parse_value(value, subtype)
+            rescue TypeError => e
+              next
+            end
+          end
+          raise TypeError, "Value #{value} does not match any type in union #{type}"
+        end
+
+        sig { params(value: T.untyped, key_type: T::Types::Base, value_type: T::Types::Base).returns(T.nilable(T::Hash[T.untyped, T.untyped])) }
+        def parse_hash(value, key_type, value_type)
+          return nil if value.nil?
+          T.assert_type!(value, Hash)
+          value.transform_keys { |k| parse_value(k, key_type) }
+               .transform_values { |v| parse_value(v, value_type) }
+        end
+      end
+
+      def self.included(base)
+        base.extend(ClassMethods)
+      end
+    end
+{{- range .Metadata.Modules }}
+end
+{{- end }}

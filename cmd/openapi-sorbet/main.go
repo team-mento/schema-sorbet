@@ -360,6 +360,9 @@ func parseVersion() string {
 //go:embed class.rb.tmpl
 var rawClassTemplate string
 
+//go:embed hash_deserializable.rb.tmpl
+var rawHashDeserializableTemplate string
+
 func main() {
 	var path string
 	var module string
@@ -463,6 +466,23 @@ func main() {
 	}
 
 	fmt.Println("Generated types.rb with all type requires")
+
+	// Render hash_deserializable template
+	hashDeserializableFile, err := os.Create(filepath.Join(outPath, "hash_deserializable.rb"))
+	must(err)
+	defer hashDeserializableFile.Close()
+
+	toplevelData := struct {
+		Metadata Metadata
+	}{
+		Metadata: metadata,
+	}
+	hashDeserializableTemplate, err := template.New("").Funcs(template.FuncMap{}).Parse(rawHashDeserializableTemplate)
+	must(err)
+	err = hashDeserializableTemplate.Execute(hashDeserializableFile, toplevelData)
+	must(err)
+
+	fmt.Println("Generated hash_deserializable.rb")
 }
 
 func must(err error) {

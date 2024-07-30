@@ -1,6 +1,9 @@
 # typed: strict
 # frozen_string_literal: true
 
+require 'sorbet-runtime'
+require_relative 'hash_deserializable'
+
 =begin
 Generated from OpenAPI specification for
   {{ .Metadata.Spec.Title }} {{ .Metadata.Spec.Version }}
@@ -8,20 +11,23 @@ using
   {{ .Metadata.Command }} version {{ .Metadata.Version }}.
 DO NOT EDIT.
 =end
+{{ with .Type -}}
+{{- range .RelativeRequires }}
+require_relative '{{ . }}'
+{{- end }}
+{{ end }}
 {{ range .Metadata.Modules }} module {{ . }}
 {{ end -}}
 {{ with .Type -}}
 =begin
 {{ .TypeName }} {{ .Comment }}
 =end
-{{- range .RelativeRequires }}
-require_relative '{{ . }}'
-{{- end }}  
 {{- if and .IsObject (ne .AdditionalProperties "") }}
-{{ .TypeName }} = T.type_alias { T::Hash[String, {{ .AdditionalProperties }}] }
+{{ .TypeName }} = T.type_alias { T::Hash[T.any(Symbol, String), {{ .AdditionalProperties }}] }
 {{- else if .IsObject }}
 class {{ .TypeName }} {{ if .BaseClass }} < {{ .BaseClass }} {{ end }}
 extend T::Sig
+include HashDeserializable
 {{ range .Properties }}
 {{ .RubyDefinition }}
 {{- end }}
